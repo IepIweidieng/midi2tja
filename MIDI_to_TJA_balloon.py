@@ -105,6 +105,14 @@ class ChartState:
         tick_gcd = gcd(*tick_rels)
 
         # output events
+        is_line_start = True
+
+        def ensure_line_start() -> None:
+            nonlocal is_line_start
+            if not is_line_start:
+                emit('')
+            is_line_start = True
+
         idiv_last = 0
         note_symbol_last = '0'
         for ievent in ievents:
@@ -113,16 +121,19 @@ class ChartState:
             idiv = tick_rel // tick_gcd
             if idiv > idiv_last:
                 emit(note_symbol_last + (idiv - idiv_last - 1) * '0', end='')
+                is_line_start = False
                 note_symbol_last = '0'
                 idiv_last = idiv
 
             if e.msg.type == 'time_signature':
                 self.tsign_upper = e.msg.numerator
                 self.tsign_lower = e.msg.denominator
+                ensure_line_start()
                 emit(f'#MEASURE {self.tsign_upper}/{self.tsign_lower}')
             elif e.msg.type == 'set_tempo':
                 self.advance_usec(e.tick_abs)
                 self.usec_per_beat = e.msg.tempo
+                ensure_line_start()
                 emit(f'#BPMCHANGE {repr(tempo2bpm(self.usec_per_beat))}')
             elif e.msg.type == 'note_on' and not (self.balloons is not None and self.balloons[-1].usec_end_abs < 0):
                 note_symbol_last = '7'
