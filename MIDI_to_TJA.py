@@ -11,6 +11,18 @@ from mido import Message, MetaMessage, MidiFile, bpm2tempo, tempo2bpm
 T = TypeVar('T')
 
 
+NOTE_SYMBOL = '7'
+
+def is_known_note(sym: str):
+    return sym in '012345679ABCDFGHI'
+
+def is_long_note(sym: str):
+    return sym in '5679DHI'
+
+def is_balloon_note(sym: str):
+    return sym in '79D'
+
+
 def merge_sorted(arr1: Sequence[T], arr2: Sequence[T], key: Callable[[T], Any]) -> List[T]:
     i1 = 0
     i2 = 0
@@ -135,14 +147,18 @@ class ChartState:
                 self.usec_per_beat = e.msg.tempo
                 ensure_line_start()
                 emit(f'#BPMCHANGE {repr(tempo2bpm(self.usec_per_beat))}')
+            elif e.msg.type == 'note_on' and not is_long_note(NOTE_SYMBOL):
+                note_symbol_last = NOTE_SYMBOL
+                e.usec_abs = self.get_usec_at(e.tick_abs)
+                e.usec_end_abs = -1  # mark as not ended
             elif e.msg.type == 'note_on' and not (self.balloons is not None and self.balloons[-1].usec_end_abs < 0):
-                note_symbol_last = '7'
+                note_symbol_last = NOTE_SYMBOL
                 e.usec_abs = self.get_usec_at(e.tick_abs)
                 e.usec_end_abs = -1  # mark as not ended
                 if self.balloons is None:
                     self.balloons = []
                 self.balloons.append(e)
-            elif e.msg.type == 'note_off' and self.balloons is not None and self.balloons[-1].usec_end_abs < 0:
+            elif e.msg.type == 'note_off' and is_long_note(NOTE_SYMBOL) and self.balloons is not None and self.balloons[-1].usec_end_abs < 0:
                 note_symbol_last = '8'
                 self.balloons[-1].usec_end_abs = self.get_usec_at(e.tick_abs)
 
@@ -177,11 +193,16 @@ def note_to_hz(note: float) -> float:
 
 
 def main(*argv: str) -> None:
+    global NOTE_SYMBOL
     fpath_midi = argv[1]
     mid = MidiFile(fpath_midi)
 
+    if len(argv) > 2 and len(argv[2]) == 1 and is_known_note(argv[2]):
+        NOTE_SYMBOL = argv[2]
+
     timing_events: List[ChartEvent] = []
     raw_note_events: List[ChartEvent] = []
+    ticks_gap = mid.ticks_per_beat // (192 // 4)  # ensure 1/192nd gap
 
     for track in mid.tracks:
         tick_abs = 0
@@ -189,7 +210,7 @@ def main(*argv: str) -> None:
             tick_abs += msg.time
             if msg.is_meta and msg.type in {'time_signature', 'set_tempo'}:
                 timing_events.append(ChartEvent(msg, tick_abs))
-            elif msg.type in {'note_on', 'note_off'}:
+            elif msg.type in {'note_on', 'note_off'} and NOTE_SYMBOL != '0':
                 raw_note_events.append(ChartEvent(msg, tick_abs))
 
     timing_events.sort(key=lambda ev: ev.tick_abs)
@@ -200,18 +221,21 @@ def main(*argv: str) -> None:
     on_notes: Dict[int, List[Optional[ChartEvent]]] = {}
 
     def note_on(msg: Message, tick: int):
+        # for hit-type notes, keep 1 chart per track
         channel_on_notes = on_notes.setdefault(msg.channel, [])
         polypos = len(channel_on_notes)
         event = ChartEvent(msg, tick)  # set start
-        event.tick_end_abs = tick + 1  # default to 1 tick long
+        event.tick_end_abs = tick + ticks_gap # default length
         for i, e in enumerate(channel_on_notes):
             if e is None:  # free slot found
                 polypos = i
                 channel_on_notes[i] = event
                 break
         else:
-            on_notes.setdefault(msg.channel, []).append(event)
-        note_events.setdefault((msg.channel, polypos), []).append(event)
+            if is_long_note(NOTE_SYMBOL):
+                on_notes.setdefault(msg.channel, []).append(event)
+        if is_long_note(NOTE_SYMBOL) or polypos == 0:
+            note_events.setdefault((msg.channel, polypos), []).append(event)
 
     def note_off(msg: Message, tick: int):
         channel_on_notes = on_notes.get(msg.channel, None)
@@ -230,22 +254,31 @@ def main(*argv: str) -> None:
     for e in raw_note_events:
         if e.msg.type == 'note_on' and e.msg.velocity > 0:
             note_on(e.msg, e.tick_abs)
-        elif e.msg.type == 'note_off' or (e.msg.type == 'note_on' and e.msg.velocity <= 0):
+            if not is_long_note(NOTE_SYMBOL):
+                note_off(e.msg, e.tick_abs + 1)
+        elif (is_long_note(NOTE_SYMBOL)
+            and (e.msg.type == 'note_off'
+                or (e.msg.type == 'note_on' and e.msg.velocity <= 0))
+            ):
             note_off(e.msg, e.tick_abs)
 
     # regenerate note-on & off events
-    ticks_gap = mid.ticks_per_beat // (192 // 4)  # ensure 1/192nd gap
-    for (ch, poly), events in note_events.items():
-        new_events = note_events[(ch, poly)] = []
-        for i, e in enumerate(events):
-            if i + 1 < len(events):
-                e.tick_end_abs = min(e.tick_end_abs, events[i + 1].tick_abs - ticks_gap)
-            if e.tick_end_abs > e.tick_abs:
-                new_events.append(e)
-                new_events.append(
-                    ChartEvent(
-                        Message('note_off', channel=e.msg.channel, note=e.msg.note),
-                        e.tick_end_abs))
+    if is_long_note(NOTE_SYMBOL):
+        for (ch, poly), events in note_events.items():
+            new_events = note_events[(ch, poly)] = []
+            for i, e in enumerate(events):
+                if i + 1 < len(events):
+                    e.tick_end_abs = min(e.tick_end_abs, events[i + 1].tick_abs - ticks_gap)
+                if e.tick_end_abs > e.tick_abs:
+                    new_events.append(e)
+                    new_events.append(
+                        ChartEvent(
+                            Message('note_off', channel=e.msg.channel, note=e.msg.note),
+                            e.tick_end_abs))
+
+    # ensure at least one (empty) chart for timing
+    if len(note_events) == 0:
+        note_events[(0, 0)] = []
 
     chart_state = ChartState(mid.ticks_per_beat)
 
@@ -275,7 +308,7 @@ def main(*argv: str) -> None:
             chart_scan_state = copy(chart_state)
             chart_scan_state.scan_chart(merged_events)
 
-            if chart_scan_state.balloons is not None:
+            if is_balloon_note(NOTE_SYMBOL) and chart_scan_state.balloons is not None:
                 balloons = [
                     max(1, round(note_to_hz(e.msg.note) * ((e.usec_end_abs - e.usec_abs) / 1_000_000)))
                     for e in chart_scan_state.balloons]

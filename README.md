@@ -9,10 +9,13 @@
 
 * `MIDI_Timing_dump.py`: Simply dump timing info from MIDI file.
   * usage: `python MIDI_Timing_dump.py filename.mid`
-* `MIDI_Timing_to_TJA.py`: Generate timed TJA template from a MIDI file.
-  * usage: `python MIDI_Timing_to_TJA.py filename.mid`
-* `MIDI_to_TJA_balloon.py`: Convert MIDI notes to tuned TJA balloons, with channels or polyphony split to separate sub-charts. Intended for Peepo Drum Kit v1.2+.
-  * usage: `python MIDI_to_TJA_balloon.py filename.mid`
+* `MIDI_to_TJA.py`: Convert MIDI notes to given TJA note. Channels or polyphony notes are split to separate sub-charts, intended for Peepo Drum Kit v1.2+.
+  * usage: `python MIDI_to_TJA.py filename.mid X`
+    * `X` is a TJA note symbol, defaults to `7`.
+    * For getting a template TJA without notes, use `0`.
+    * For hit-types note, use one of `1`, `2`, `3`, `4`, `A`, `B`, `C`, `F`, `G`.
+    * For non-balloon drumrolls, use one of `5`, `6`, `H`, `I`.
+    * For balloon, use one of `7`, `9`, `D`. The balloons are pitch-tuned
 
 ## Features
 
@@ -24,7 +27,7 @@
 
 ## TODOs
 
-* [ ] Unify code, with function switches
-* [ ] Hit-mode: Convert MIDI note to hit-type TJA notes
+* [x] Unify code, with function switches
+* [x] Hit-mode: Convert MIDI note to hit-type TJA notes
 * [ ] TJA to MIDI conversion, especially for Bongo game mode
 
