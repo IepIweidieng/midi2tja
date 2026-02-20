@@ -69,15 +69,6 @@ class ChartState:
         self.usec_checkpoint: int = 0
         self.balloons: Optional[List[ChartEvent]] = None
 
-    def sync_measure_begin_state(self, event: ChartEvent) -> None:
-        if event.tick_abs != self.tick_measure_begin:
-            return
-        if event.msg.type == 'time_signature':
-            self.tsign_upper = event.msg.numerator
-            self.tsign_lower = event.msg.denominator
-        elif event.msg.type == 'set_tempo':
-            self.usec_per_beat = event.msg.tempo
-
     def get_ticks_per_measure(self) -> int:
         return max(1, self.ticks_per_beat * 4 * self.tsign_upper // self.tsign_lower)
 
@@ -210,6 +201,12 @@ def main(*argv: str) -> None:
         'note', type=str, choices=KNOWN_NOTES, nargs="?", default=NOTE_SYMBOL,
         help='TJA note symbol to convert the MIDI notes into')
     parser.add_argument(
+        '--note-quantize', '-q', metavar='u/d', type=Fraction, default=Fraction(0, 1),
+        help="Fraction of 4 pulses to quantize note events (default: 0 for no quantizing)")
+    parser.add_argument(
+        '--bpm-snap', '-s', metavar='u/d', type=Fraction, default=Fraction(0, 1),
+        help="Fraction of 4 pulses to snap tempo events (default: 0 for no snapping)")
+    parser.add_argument(
         '--long-gap', '-g', metavar='u/d', type=Fraction, default=Fraction(1, 192),
         help="Fraction of 4 pulses for minimum length and gap of long notes (default: 1/192nd)")
     args = parser.parse_args()
@@ -223,15 +220,33 @@ def main(*argv: str) -> None:
     timing_events: List[ChartEvent] = []
     raw_note_events: List[ChartEvent] = []
     ticks_gap = int(4 * mid.ticks_per_beat * args.long_gap) if is_long_note(NOTE_SYMBOL) else 0 # ensure gap for long notes
+    ticks_quant = int(4 * mid.ticks_per_beat * args.note_quantize)
+    ticks_snap = int(4 * mid.ticks_per_beat * args.bpm_snap)
 
     for track in mid.tracks:
         tick_abs = 0
+        last_tempo = bpm2tempo(120)
         for msg in track:
             tick_abs += msg.time
             if msg.is_meta and msg.type in {'time_signature', 'set_tempo'}:
-                timing_events.append(ChartEvent(msg, tick_abs))
+                if msg.type == 'set_tempo' and ticks_snap > 0 and tick_abs % ticks_snap != 0:
+                    # convert unsnapped tempo event into 2 snapped tempo events
+                    tick_abs_floor = int(math.floor(tick_abs / ticks_snap)) * ticks_snap
+                    ticks_pre = tick_abs - tick_abs_floor
+                    ticks_post = ticks_snap - ticks_pre
+                    tempo_mid = round((last_tempo * ticks_pre + msg.tempo * ticks_post) / ticks_snap)
+                    msg_ = msg.copy(tempo=tempo_mid)
+                    timing_events.append(ChartEvent(msg_, tick_abs_floor))
+                    timing_events.append(ChartEvent(msg, tick_abs_floor + ticks_snap))
+                else:
+                    timing_events.append(ChartEvent(msg, tick_abs))
+                if msg.type == 'set_tempo':
+                    last_tempo = timing_events[-1].msg.tempo
             elif msg.type in {'note_on', 'note_off'} and NOTE_SYMBOL != '0':
-                raw_note_events.append(ChartEvent(msg, tick_abs))
+                tick_abs_snapped = tick_abs
+                if ticks_quant > 0:
+                    tick_abs_snapped = round(tick_abs / ticks_snap) * ticks_snap
+                raw_note_events.append(ChartEvent(msg, tick_abs_snapped))
 
     timing_events.sort(key=lambda ev: ev.tick_abs)
     raw_note_events.sort(key=lambda ev: ev.tick_abs)
