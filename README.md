@@ -7,10 +7,10 @@
 
 ## Tools
 
-* `MIDI_Timing_dump.py`: Simply dump timing info from MIDI file.
-  * usage: `python MIDI_Timing_dump.py filename.mid`
-* `MIDI_to_TJA.py`: Convert MIDI notes to given TJA note. Channels or polyphony notes are split to separate sub-charts, intended for Peepo Drum Kit v1.2+.
-  * usage: `python MIDI_to_TJA.py filename.mid X`
+* `midi_timing_dump.py`: Simply dump timing info from MIDI file.
+  * usage: `python midi_timing_dump.py filename.mid`
+* `midi_to_tja.py`: Convert MIDI notes to given TJA note. Channels or polyphony notes are split to separate sub-charts, intended for Peepo Drum Kit v1.2+.
+  * usage: `python midi_to_tja.py filename.mid X`
     * `X` is a TJA note symbol, defaults to `7`.
     * For getting a template TJA without notes, use `0`.
     * For hit-types note, use one of `1`, `2`, `3`, `4`, `A`, `B`, `C`, `F`, `G`.
