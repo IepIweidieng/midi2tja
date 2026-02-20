@@ -16,6 +16,9 @@
     * For hit-types note, use one of `1`, `2`, `3`, `4`, `A`, `B`, `C`, `F`, `G`.
     * For non-balloon drumrolls, use one of `5`, `6`, `H`, `I`.
     * For balloon, use one of `7`, `9`, `D`. The balloons are pitch-tuned
+* `midi_reclock.py`: Change the clock rate and BPM of the MIDI file, while keeping the play speed unchanged.
+  * usage: `python midi_reclock.py filename.mid ppq bpmrate`
+    * If `ppq` and `bpmrate` are not given, user will be prompted to input their value.
 
 ## Features
 
