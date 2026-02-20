@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 from copy import copy
 from dataclasses import dataclass
 from math import gcd
@@ -13,14 +14,18 @@ T = TypeVar('T')
 
 NOTE_SYMBOL = '7'
 
+KNOWN_NOTES = '012345679ABCDFGHI'
+LONG_NOTES = '5679DHI'
+BALLOON_NOTES = '79D'
+
 def is_known_note(sym: str):
-    return sym in '012345679ABCDFGHI'
+    return sym in KNOWN_NOTES
 
 def is_long_note(sym: str):
-    return sym in '5679DHI'
+    return sym in LONG_NOTES
 
 def is_balloon_note(sym: str):
-    return sym in '79D'
+    return sym in BALLOON_NOTES
 
 
 def merge_sorted(arr1: Sequence[T], arr2: Sequence[T], key: Callable[[T], Any]) -> List[T]:
@@ -194,11 +199,22 @@ def note_to_hz(note: float) -> float:
 
 def main(*argv: str) -> None:
     global NOTE_SYMBOL
-    fpath_midi = argv[1]
+
+    parser = argparse.ArgumentParser(
+        description='Convert MIDI notes to given TJA note')
+    parser.add_argument(
+        'input_midi', metavar='input.mid', type=str,
+        help='source MIDI file')
+    parser.add_argument(
+        'note', type=str, choices=KNOWN_NOTES, nargs="?", default=NOTE_SYMBOL,
+        help='TJA note symbol to convert the MIDI notes into')
+    args = parser.parse_args()
+
+    fpath_midi = args.input_midi
     mid = MidiFile(fpath_midi)
 
-    if len(argv) > 2 and len(argv[2]) == 1 and is_known_note(argv[2]):
-        NOTE_SYMBOL = argv[2]
+    if len(args.note) == 1 and is_known_note(args.note):
+        NOTE_SYMBOL = args.note
 
     timing_events: List[ChartEvent] = []
     raw_note_events: List[ChartEvent] = []
