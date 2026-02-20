@@ -3,6 +3,7 @@
 import argparse
 from copy import copy
 from dataclasses import dataclass
+from fractions import Fraction
 from math import gcd
 import math
 import sys
@@ -208,6 +209,9 @@ def main(*argv: str) -> None:
     parser.add_argument(
         'note', type=str, choices=KNOWN_NOTES, nargs="?", default=NOTE_SYMBOL,
         help='TJA note symbol to convert the MIDI notes into')
+    parser.add_argument(
+        '--long-gap', '-g', metavar='u/d', type=Fraction, default=Fraction(1, 192),
+        help="Fraction of 4 pulses for minimum length and gap of long notes (default: 1/192nd)")
     args = parser.parse_args()
 
     fpath_midi = args.input_midi
@@ -218,7 +222,7 @@ def main(*argv: str) -> None:
 
     timing_events: List[ChartEvent] = []
     raw_note_events: List[ChartEvent] = []
-    ticks_gap = mid.ticks_per_beat // (192 // 4)  # ensure 1/192nd gap
+    ticks_gap = int(4 * mid.ticks_per_beat * args.long_gap) if is_long_note(NOTE_SYMBOL) else 0 # ensure gap for long notes
 
     for track in mid.tracks:
         tick_abs = 0
@@ -234,22 +238,35 @@ def main(*argv: str) -> None:
 
     # simulate polyphonic notes
     note_events: Dict[Tuple[int, int], List[ChartEvent]] = {}
-    on_notes: Dict[int, List[Optional[ChartEvent]]] = {}
+    on_notes: Dict[int, List[ChartEvent]] = {}
 
     def note_on(msg: Message, tick: int):
         # for hit-type notes, keep 1 chart per track
         channel_on_notes = on_notes.setdefault(msg.channel, [])
         polypos = len(channel_on_notes)
         event = ChartEvent(msg, tick)  # set start
-        event.tick_end_abs = tick + ticks_gap # default length
+        event.tick_end_abs = tick + ticks_gap # minimum length
+        event.usec_end_abs = -1 # mark as unended
         for i, e in enumerate(channel_on_notes):
-            if e is None:  # free slot found
+            e_ = e
+            # cut same note
+            if e_.msg.note == msg.note:
+                e_ = copy(e)
+                if e_.usec_end_abs == -1:
+                    e_.tick_end_abs = tick
+                    e_.usec_end_abs = -2 # mark as ended
+                e_.tick_end_abs = max(e_.tick_abs + ticks_gap, min(e_.tick_end_abs, tick - ticks_gap))
+            # check if free
+            if e_.usec_end_abs != -1 and tick > e_.tick_end_abs:  # free slot found
                 polypos = i
                 channel_on_notes[i] = event
+                # apply note cut
+                e.tick_end_abs = e_.tick_end_abs
+                e.usec_end_abs = e_.usec_end_abs
                 break
         else:
             if is_long_note(NOTE_SYMBOL):
-                on_notes.setdefault(msg.channel, []).append(event)
+                channel_on_notes.append(event)
         if is_long_note(NOTE_SYMBOL) or polypos == 0:
             note_events.setdefault((msg.channel, polypos), []).append(event)
 
@@ -259,19 +276,16 @@ def main(*argv: str) -> None:
             return
         for i in range(len(channel_on_notes) - 1, -1, -1):
             e = channel_on_notes[i]
-            if e is not None and e.msg.note == msg.note:
-                e.tick_end_abs = tick  # set end
-                if i == len(channel_on_notes) - 1:
-                    channel_on_notes.pop()  # remove slot
-                else:
-                    channel_on_notes[i] = None  # mark as free slot
+            if e.usec_end_abs == -1 and e.msg.note == msg.note:
+                e.tick_end_abs = max(e.tick_abs + ticks_gap, tick)  # set end
+                e.usec_end_abs = -2 # mark as ended
                 return
 
     for e in raw_note_events:
         if e.msg.type == 'note_on' and e.msg.velocity > 0:
             note_on(e.msg, e.tick_abs)
             if not is_long_note(NOTE_SYMBOL):
-                note_off(e.msg, e.tick_abs + 1)
+                note_off(e.msg, e.tick_abs)
         elif (is_long_note(NOTE_SYMBOL)
             and (e.msg.type == 'note_off'
                 or (e.msg.type == 'note_on' and e.msg.velocity <= 0))
@@ -283,8 +297,6 @@ def main(*argv: str) -> None:
         for (ch, poly), events in note_events.items():
             new_events = note_events[(ch, poly)] = []
             for i, e in enumerate(events):
-                if i + 1 < len(events):
-                    e.tick_end_abs = min(e.tick_end_abs, events[i + 1].tick_abs - ticks_gap)
                 if e.tick_end_abs > e.tick_abs:
                     new_events.append(e)
                     new_events.append(
