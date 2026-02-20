@@ -305,15 +305,16 @@ def main(*argv: str) -> None:
             ))
 
             # scan for balloon count
-            chart_scan_state = copy(chart_state)
-            chart_scan_state.scan_chart(merged_events)
+            if is_balloon_note(NOTE_SYMBOL):
+                chart_scan_state = copy(chart_state)
+                chart_scan_state.scan_chart(merged_events)
 
-            if is_balloon_note(NOTE_SYMBOL) and chart_scan_state.balloons is not None:
-                balloons = [
-                    max(1, round(note_to_hz(e.msg.note) * ((e.usec_end_abs - e.usec_abs) / 1_000_000)))
-                    for e in chart_scan_state.balloons]
-                print(f'BALLOON:{",".join((repr(v) for v in balloons))}', file=tja)
-                print('', file=tja)
+                if chart_scan_state.balloons is not None:
+                    balloons = [
+                        max(1, round(note_to_hz(e.msg.note) * ((e.usec_end_abs - e.usec_abs) / 1_000_000)))
+                        for e in chart_scan_state.balloons]
+                    print(f'BALLOON:{",".join((repr(v) for v in balloons))}', file=tja)
+                    print('', file=tja)
 
             print('#START', file=tja)
 
