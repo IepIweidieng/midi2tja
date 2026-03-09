@@ -199,7 +199,7 @@ def main(*argv: str) -> None:
         help='source MIDI file')
     parser.add_argument(
         'note', type=str, choices=KNOWN_NOTES, nargs="?", default=NOTE_SYMBOL,
-        help='TJA note symbol to convert the MIDI notes into')
+        help=f'TJA note symbol to convert the MIDI notes into (default: {NOTE_SYMBOL})')
     parser.add_argument(
         '--note-quantize', '-q', metavar='u/d', type=Fraction, default=Fraction(0, 1),
         help="Fraction of 4 pulses to quantize note events (default: 0 for no quantizing)")
